@@ -1,0 +1,43 @@
+// CF Worker — cyber-drill key-gated SPA host.
+// Deploy target: <name>.<account>.workers.dev (no custom domain).
+// Vendor-only per ADR-2605172400 (3-axis split — vendor for all three).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cyber-drill-vendor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+
+  // Static SPA bundle from `../svelte/build`. SvelteKit adapter-static
+  // emits `index.html` as the SPA fallback; CF Static Assets routes
+  // unmatched paths to it when `not_found_handling` is set below.
+  "assets": {
+    "directory": "../svelte/build",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The Worker runs FIRST and decides whether to call ASSETS.fetch.
+    // `run_worker_first: true` means our key-gate runs on every request,
+    // including for static asset paths.
+    "run_worker_first": true
+  },
+
+  // KV namespace stores `key:<sha256hex>` → JSON metadata
+  // ({ tenant, issuedAt, expiresAt?, notes? }). Create via:
+  //   wrangler kv:namespace create DRILL_KEYS
+  // then paste the returned id below.
+  "kv_namespaces": [
+    {
+      "binding": "DRILL_KEYS",
+      "id": "706688443b084641843acd1f1322496f"
+    }
+  ],
+
+  "vars": {
+    "COOKIE_NAME": "cyber_drill_session",
+    "SESSION_TTL_HOURS": "24"
+  }
+
+  // `SESSION_SECRET` is set via `wrangler secret put SESSION_SECRET`.
+  // Never commit secrets here.
+}
