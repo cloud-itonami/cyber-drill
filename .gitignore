@@ -1,0 +1,5 @@
+# docs/operator-quickstart.md の手順（pnpm install / build）が作るもの。
+# この repo にはこれまで .gitignore が無く、手順どおり動かすと tree が汚れた。
+node_modules/
+.svelte-kit/
+svelte/build/
