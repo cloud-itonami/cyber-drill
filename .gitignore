@@ -1,5 +1,7 @@
-# docs/operator-quickstart.md の手順（pnpm install / build）が作るもの。
-# この repo にはこれまで .gitignore が無く、手順どおり動かすと tree が汚れた。
+# docs/operator-quickstart.md の手順（pnpm install / npm install / build）が
+# 作るもの。この repo にはこれまで .gitignore が無く、手順どおり動かすと
+# tree が汚れた。svelte/.svelte-kit・svelte/build は 2026-09-24 の cljs 移行
+# （ADR-2608260900）で svelte/ ごと削除したので外した（cljs/ 側は
+# cljs/.gitignore が持つ）。
 node_modules/
-.svelte-kit/
-svelte/build/
+/.scratch

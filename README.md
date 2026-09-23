@@ -16,23 +16,28 @@ IPA J-CSIP のどの要求に照らして良手・悪手なのかという採点
 `immersive-vr` をネイティブ対応し、iOS Safari は `deviceorientation` の
 magic-window にフォールバックする。アプリのインストールは要らない。
 
-## いま何が在るか（実測 2026-08-13）
+## いま何が在るか（実測 2026-09-24、ADR-2608260900 の cljs 移行後）
 
 | 部品 | 実体 | 状態 |
 |---|---|---|
-| シナリオ | `scenarios/semiconductor-chem-plant.ts`（20 KB） | 半導体・電子材料プラントのインシデント。**14 ノード / 終端 2**（`lessonsLearned` = success、`coverupFail` = failure） |
-| シナリオの不変条件テスト | `scenarios/semiconductor-chem-plant.test.ts` | **走らない**（下記） |
-| SPA | `svelte/`（Svelte 5 + SvelteKit adapter-static + three.js） | **ビルドできない**（下記） |
+| シナリオ | `scenarios/semiconductor-chem-plant.ts`（20 KB） | 半導体・電子材料プラントのインシデント。**14 ノード / 終端 2**（`lessonsLearned` = success、`coverupFail` = failure）。この移行の対象外、無改変 |
+| シナリオの不変条件テスト | `scenarios/semiconductor-chem-plant.test.ts` | **走らない**（`vitest` が依存に無い。移行前から未着地） |
+| SPA | `cljs/`（reagent + re-frame + jp-go-dds、ADR-2608260900 で Svelte を退役） | **ビルドできない**（下記） |
+| 3D レンダラ（Three.js） | `legacy/three-renderer/` | 移行時に `svelte/` から verbatim で退避。配線されていない。Three.js はこのワークスペースの 3D 規則で新規禁止（3D は kami-engine 経由）なので cljs へは移植していない |
 | 配信 Worker | `worker/`（TS、CF Workers） | 型検査は通る。鍵ゲート + HMAC セッション cookie |
 | 鍵発行 | `worker/scripts/gen-key.mjs` | 動く |
 
-**この repo は現状ビルドできない。** 抽出時に SPA の SDK 依存が切れたまま
-持ち込まれており、`svelte/` の `pnpm build` は
-`Rollup failed to resolve import "@etzhayyim/kami-engine-sdk/webvr"` で落ちる。
-`pnpm install` は**成功する**（pnpm の `link:` は遅延シンボリックリンクなので、
-リンク先が無くても exit 0 になる）ので、install の緑をビルド可能性と読まないこと。
+**この repo は現状ビルドできない。** `svelte/` の SDK リンク切れ（旧 ADR-0001）は
+`svelte/` ごと削除したので解消したが、代わりに `cljs/` の
+`amu compile --target wasm32-browser app` が別の理由で落ちる:
+`--target wasm32-browser` は Kotoba 安全言語のネイティブ/WASM モジュールグラフ
+向けで、`reagent` / `re-frame` / `jp-go-dds` のような通常の ClojureScript
+ライブラリ require を解決しない（`amu check` は
+`:kotoba/project-link-failed` — モジュールに明示的な `:export` を要求する）。
+`npm install` は成功するので、install の緑をビルド可能性と読まないこと
+（旧 ADR-0001 と同じ罠が形を変えて再発している）。
 
-診断・回避の経緯は **[docs/adr/0001-extraction-severed-the-webvr-sdk-link.md](docs/adr/0001-extraction-severed-the-webvr-sdk-link.md)**、
+診断の経緯は **[docs/adr/0001-extraction-severed-the-webvr-sdk-link.md](docs/adr/0001-extraction-severed-the-webvr-sdk-link.md)**（旧問題の記録 + 2026-09-24 追記）、
 いま実際に踏める手順は **[docs/operator-quickstart.md](docs/operator-quickstart.md)**。
 
 ## 境界 — vendor-only
@@ -60,11 +65,16 @@ vendor**:
 ├── README.edn / migration.edn             抽出メタデータ（etzhayyim/root からの由来）
 ├── docs/
 │   ├── operator-quickstart.md             実際に踏める手順だけを書いた運用手順
-│   └── adr/0001-…                         抽出で切れた SDK リンクの記録
-├── scenarios/                             vendor-private なシナリオ本体
+│   └── adr/0001-…                         抽出で切れた SDK リンクの記録 + cljs 移行後の追記
+├── scenarios/                             vendor-private なシナリオ本体（この移行の対象外）
 │   ├── semiconductor-chem-plant.ts
 │   └── semiconductor-chem-plant.test.ts
-├── svelte/                                Svelte 5 SPA シェル（WebVR ビュー）
+├── cljs/                                  reagent + re-frame + jp-go-dds SPA（ADR-2608260900、ビルド未達）
+│   ├── deps.edn / shadow-cljs.edn / package.json
+│   ├── src/cyber_drill_frontend/app.kotoba
+│   ├── test/cyber_drill_frontend/app_test.kotoba
+│   └── public/index.html                  単一文書（ADR-2608080100）。ビュー切替は URL fragment（`#/spark`）
+├── legacy/three-renderer/                 旧 Svelte SPA の Three.js レンダラ。verbatim 退避、未配線
 └── worker/                                鍵ゲート付き配信 Worker（CF Workers）
     ├── README.md                          Worker 単体の設計メモ
     ├── src/{index,auth,unlock-page}.ts
@@ -75,10 +85,9 @@ vendor**:
 
 このリポジトリは `etzhayyim/root` の `60-apps/etzhayyim-project-cyber-drill`
 （rev `cc681c5`、35 ファイル / 277,925 バイト）を単体 repo として切り出したもの
-（`migration.edn` が正本）。**`CLAUDE.md` と `worker/README.md` は切り出し前の
-モノレポを前提に書かれたまま**なので、`cd 60-apps/…` のようなパスや
-`pnpm test` のようなコマンドはこの repo には無い。手順は
-`docs/operator-quickstart.md` を正とする。
+（`migration.edn` が正本）。**`worker/README.md` の一次セットアップ手順は
+切り出し前のモノレポを前提に書かれたまま**なので、`cd 60-apps/…` のような
+パスはこの repo には無い。手順は `docs/operator-quickstart.md` を正とする。
 
 ## 数値の規律（AT Lexicon）
 

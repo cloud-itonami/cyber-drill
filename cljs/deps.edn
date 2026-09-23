@@ -1,0 +1,24 @@
+{:paths ["src"]
+ ;; Runtime deps at top level are workspace-git only (ADR-2608201300 /
+ ;; jvm-new-surface-guard: new top-level maven/external-git leaves are
+ ;; refused). clojurescript/reagent/re-frame/shadow-cljs go under the :cljs
+ ;; alias instead -- same split kotoba-lang/shitsuke uses for its own
+ ;; browser build, and the same split used by
+ ;; orgs/cloud-itonami/recap/cljs (the sibling this layout is copied from).
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        io.github.kotoba-lang/jp-go-digital-design-system
+        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system.git"
+         :git/sha "dc4602dc17bce8f6e9ba038e92b3e95fcc411b49"}
+        ;; docs/adr/0001: the svelte SPA's webvr scenario engine was ported
+        ;; 1:1 to ClojureScript here (kami.webvr.incident-pregel /
+        ;; kami.webvr.types). Tried as the state engine for the drill view;
+        ;; see src/cyber_drill_frontend/app.kotoba for whether it resolved
+        ;; under shadow-cljs (its own sources are .cljk).
+        io.github.kotoba-lang/kami-webvr
+        {:git/url "https://github.com/kotoba-lang/kami-webvr.git"
+         :git/sha "24087fee54a92b982aa1c04af84f886d9e2fa88f"}}
+ :aliases {:cljs {:extra-deps {org.clojure/clojurescript {:mvn/version "1.11.132"}
+                                thheller/shadow-cljs {:mvn/version "2.28.20"}
+                                reagent/reagent {:mvn/version "1.2.0"}
+                                re-frame/re-frame {:mvn/version "1.4.3"}}}
+           :test {:extra-paths ["test"]}}}

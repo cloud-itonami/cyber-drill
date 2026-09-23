@@ -1,58 +1,50 @@
 # cyber-drill — operator quickstart
 
-**この文書に書いてある手順は、2026-08-13 に全部実際に実行して出力を確認したもの
-だけである。** 通らなかったものは「手順」ではなく「§4 いま通らないこと」に
-落としてある —— 踏めない手順を手順として書かない。
+**この文書に書いてある手順は、実際に実行して出力を確認したものだけである。**
+通らなかったものは「手順」ではなく「§4 いま通らないこと」に落としてある ——
+踏めない手順を手順として書かない。§0〜3 は 2026-08-13 実測のまま
+（Worker 側は SPA の移行と無関係）。§4.1 は 2026-09-24、Svelte → cljs 移行
+（ADR-2608260900）後に実測し直した。
 
 対象読者: この repo を clone して、顧客に訓練 URL を 1 本渡すところまでを
 やる運用者。
 
-前提: `node`（v20+）、`pnpm`（実測 10.26.2）。Cloudflare へ配信するなら
-`wrangler` の認証。
+前提: `node`（v20+）、`pnpm`（実測 10.26.2、Worker 用）、`npm`（`cljs/` 用）。
+Cloudflare へ配信するなら `wrangler` の認証。
 
 ```sh
 git clone git@github.com:cloud-itonami/cyber-drill.git
 cd cyber-drill
 ```
 
-### 実行記録（2026-08-13、`node_modules` を消した素の tree で逐語実行）
+### 実行記録
 
 | § | コマンド | 実測 exit |
 |---|---|---|
-| 0 | preflight one-liner | **1**（= SDK リンク切れ。現状これが正常な観測） |
-| 1 | `worker$ pnpm install` | 0 |
-| 2 | `worker$ npx tsc --noEmit` | 0（出力なし） |
-| 3 | `worker$ node scripts/gen-key.mjs --tenant=demo-jp` | 0 |
-| 3 | `worker$ node scripts/gen-key.mjs`（引数なし） | 2（usage） |
-| 4.1 | `svelte$ pnpm install` | **0 ← 緑になるが直後のビルドは落ちる** |
-| 4.1 | `svelte$ pnpm run build` | 1（Rollup 解決失敗） |
+| 1 | `worker$ pnpm install` | 0（2026-08-13） |
+| 2 | `worker$ npx tsc --noEmit` | 0（出力なし、2026-08-13） |
+| 3 | `worker$ node scripts/gen-key.mjs --tenant=demo-jp` | 0（2026-08-13） |
+| 3 | `worker$ node scripts/gen-key.mjs`（引数なし） | 2（usage、2026-08-13） |
+| 4.1 | `cljs$ npm install` | **0（2026-09-24）** |
+| 4.1 | `cljs$ npm run build`（= `amu compile --target wasm32-browser app`） | **64（usage error、2026-09-24）** |
+
+`node_modules` を消した素の tree で逐語実行。旧 §0 の preflight
+（`@etzhayyim/kami-engine-sdk` の `link:` 解決確認）は `svelte/` を削除した
+この移行（2026-09-24、ADR-2608260900）で意味を失ったので削除した。
 
 ---
 
-## 0. まず preflight —— SPA がビルドできる状態かを 1 コマンドで見る
+## 0. 現在の状態 —— SPA は今もビルドできない（別の理由で）
 
-**`pnpm install` の成功はビルド可能性を意味しない。** `svelte/package.json` の
-SDK 依存は pnpm の `link:` 指定で、pnpm はリンク先が存在しなくても
-シンボリックリンクだけ作って **exit 0 を返す**。ビルドまで進んで初めて落ちる。
-先に見る:
+`svelte/` は 2026-09-24 の移行（ADR-2608260900）で削除され、`link:`
+リンク切れという旧 §0 の問題は消えた。だが `cljs/` の
+`npm run build`（= `amu compile --target wasm32-browser app`）は
+**別の理由で exit 64 になる**（§4.1 で実測）: `--target wasm32-browser` は
+Kotoba 安全言語のモジュールグラフ向けで、`reagent` / `re-frame` /
+`jp-go-dds` のような通常の ClojureScript ライブラリの `:require` を解決
+しない。`npm install` は exit 0 になるので、旧 §0 と同じ罠
+（install の緑をビルド可能性と読まない）がここでも生きている。
 
-```sh
-node -e 'const fs=require("fs"),path=require("path");
-const spec=JSON.parse(fs.readFileSync("svelte/package.json","utf8"))
-  .dependencies["@etzhayyim/kami-engine-sdk"];
-const p=path.resolve("svelte",spec.replace(/^link:/,""));
-console.log(fs.existsSync(p)?"OK       "+p:"MISSING  "+p);
-process.exit(fs.existsSync(p)?0:1)'
-```
-
-2026-08-13 時点の実際の出力（exit 1）:
-
-```
-MISSING  /private/40-engine/kami-engine/kami-engine-sdk
-```
-
-**MISSING が出るのが現在の正常な観測結果**である（理由は
-[docs/adr/0001](adr/0001-extraction-severed-the-webvr-sdk-link.md)）。
 この状態でも §1〜§3 —— Worker の検査と顧客鍵の発行 —— は全部通る。
 SPA のビルドと配信だけが止まる。
 
@@ -145,40 +137,70 @@ npx wrangler kv key delete --binding=DRILL_KEYS --remote "key:<sha256hex>"
 
 ## 4. いま通らないこと（手順として書けないもの）
 
-### 4.1 SPA のビルド —— 落ちる
+### 4.1 SPA のビルド —— 落ちる（2026-09-24、cljs 移行後に実測し直し）
 
 ```sh
-cd svelte && pnpm install && pnpm run build
+cd cljs && npm install && npm run build
 ```
 
-`pnpm install` は **exit 0**（前述のとおりリンク切れを検出しない）。
-ビルドが落ちる:
+`npm install` は **exit 0**。`npm run build`（=
+`amu compile --target wasm32-browser app`）が **exit 64** で落ちる:
 
 ```
-error during build:
-[vite]: Rollup failed to resolve import "@etzhayyim/kami-engine-sdk/webvr"
-  from ".../svelte/src/routes/+page.svelte".
+{:format :kotoba.cli-error/v1, :ok false, :error :usage,
+ :diagnostic {:format :kotoba.diagnostic/v1, :code :kotoba/invalid-usage, :severity :error},
+ :message "source input must use .kotoba, .cljk, or .cljc"}
 ```
+
+`amu compile <entry.kotoba> --target wasm32-browser --output <file>`
+（ファイルを先頭に置く）まで進めると別のエラーになる:
+
+```
+{:error :subset, :diagnostic {:code :kotoba.error/namespace-require-needs-project, ...},
+ :message "this namespace declares (:require ...), so it is a module of a
+   multi-file project; the single-module path admits only a standalone
+   namespace. Pin the graph with `amu module-lock <entry> --source-path <dir>
+   --blocks <dir>` then `amu compile --module-lock <lock> --blocks <dir>`; ..."}
+```
+
+`amu module-lock` / `amu check` に進めると
+`:kotoba/project-link-failed`（「明示的な `:export` vector が要る」）で
+止まる。**`--target wasm32-browser` は Kotoba 安全言語のネイティブ/WASM
+モジュールグラフ向けの経路で、`reagent` / `re-frame` / `jp-go-dds` のような
+Maven/npm 由来の通常の ClojureScript ライブラリを `:require` する
+namespace は、この経路では解決できない。** これは `orgs/cloud-itonami/recap`
+の `cljs/package.json`（同じ `amu compile --target wasm32-browser app`
+という build script）をそのまま踏襲した結果分かったことで、あちら側も
+実際にこのコマンドでビルドが通ったことを検証したログは無い
+（`93e3795` のコミットメッセージは "Text only; no mirror;
+fix-forward" — 機械的な文字列置換であって実行結果の確認ではない）。
 
 したがって `worker/package.json` の `build:assets`、その先の
-`wrangler deploy`（`assets.directory` が `../svelte/build`）も現状は通らない。
-原因と選択肢は [docs/adr/0001](adr/0001-extraction-severed-the-webvr-sdk-link.md)。
+`wrangler deploy`（`assets.directory` が `../cljs/public`）も現状は通らない。
+`git worktree`・deps.edn・shadow-cljs.edn・ソース自体（reagent + re-frame +
+jp-go-dds、`kami-webvr` を git 依存として消費）は用意してあるので、amu 側の
+「reagent/re-frame のような通常の ClojureScript ライブラリを含むブラウザ
+バンドルをどう作るか」（shadow-cljs 相当の経路）が定まれば、そのまま
+ビルドできる可能性がある。
 
 > 重い build を回すときは、この workspace の規約どおり
-> `node <root>/scripts/resource-guard.mjs run build -- pnpm run build` を通す
-> （同時に 1 本だけ）。上の実測もこれ経由。
+> `node <root>/scripts/resource-guard.mjs run build -- amu compile --target wasm32-browser app`
+> を通す（同時に 1 本だけ）。上の実測もこれ経由。
 
 ### 4.2 シナリオのテスト —— ランナーが無い
 
-`CLAUDE.md` は「`pnpm test` で `webvr.test.ts` の不変条件に照らして到達性を
-検証する」と書いているが、**この repo に `test` script は 1 つも無い**
-（`svelte/package.json` にも `worker/package.json` にも無く、ルートに
-`package.json` が無い）。`scenarios/semiconductor-chem-plant.test.ts` は
+`scenarios/semiconductor-chem-plant.test.ts` の不変条件（全ノードが
+`start` から到達可能 / 全終端が outcome を持つ / `applySelection` の
+ハッピーパスが success 終端に着く）を検証する `test` script は、
+`worker/package.json` にも `cljs/package.json` にも、ルートにも無い
+（ルートに `package.json` が無い）。`scenarios/*.ts` はこの移行の対象外で
+無改変。`scenarios/semiconductor-chem-plant.test.ts` は
 `vitest` と `@etzhayyim/kami-engine-sdk/webvr` を import するが、
-`vitest` は依存に入っていない。テストが検査するはずの不変条件
-（全ノードが `start` から到達可能 / 全終端が outcome を持つ /
-`applySelection` のハッピーパスが success 終端に着く）は、**現在どこでも
-検査されていない**。
+`vitest` は依存に入っていない。**この不変条件は現在どこでも検査されて
+いない。**`cljs/test/cyber_drill_frontend/app_test.kotoba` はこの移行で
+足した re-frame の単体テストで、`kami.webvr.incident-pregel` に対しては
+書いてあるが、対象は小さいローカルのデモシナリオであって
+`scenarios/semiconductor-chem-plant.ts` の 14 ノードではない。
 
 ### 4.3 ローカル開発サーバ —— この環境では確認できなかった
 
@@ -188,7 +210,8 @@ error during build:
 **repo の欠陥ではなく作業機側の fd 枯渇**（多数の並行セッションが同居して
 いる）。`ulimit -n` に余裕のある機械では別の結果になりうるので、
 「通る」とも「通らない」とも書かない —— 未確認として残す。
-なお `../svelte/build` が無い状態では、いずれにせよ静的アセットは配れない。
+なお `../cljs/public/js` が無い状態（§4.1）では、いずれにせよ静的アセットは
+配れない。
 
 ---
 

@@ -9,11 +9,14 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
 
-  // Static SPA bundle from `../svelte/build`. SvelteKit adapter-static
-  // emits `index.html` as the SPA fallback; CF Static Assets routes
-  // unmatched paths to it when `not_found_handling` is set below.
+  // Static SPA bundle from `../cljs/public` (reagent + re-frame + jp-go-dds,
+  // built by `amu compile --target wasm32-browser app` in cljs/, per
+  // ADR-2608260900 -- Svelte retired). `index.html` is the single document
+  // (ADR-2608080100); views are selected client-side by URL fragment
+  // (`#/spark`), so CF Static Assets never needs to route a second path --
+  // `not_found_handling` below is the fallback for anything else.
   "assets": {
-    "directory": "../svelte/build",
+    "directory": "../cljs/public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // The Worker runs FIRST and decides whether to call ASSETS.fetch.

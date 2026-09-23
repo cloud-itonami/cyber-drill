@@ -1,0 +1,45 @@
+(ns cyber-drill-frontend.app-test
+  (:require [cljs.test :refer [deftest is testing]]
+            [re-frame.core :as rf]
+            [re-frame.db :as rf-db]
+            [cyber-drill-frontend.app :as app]))
+
+(deftest init-db-starts-at-the-scenario-start-node
+  (testing ":init-db populates app-db with the demo incident at its start node"
+    (rf/dispatch-sync [:init-db])
+    (is (= "detect" (:current @(rf/subscribe [:incident/state]))))
+    (is (false? (:done @(rf/subscribe [:incident/state]))))
+    (is (= "detect" (:id @(rf/subscribe [:incident/current-node]))))))
+
+(deftest selecting-the-only-choice-reaches-the-success-terminal
+  (testing "apply-selection (ported kami.webvr.incident-pregel) drives the demo scenario to done"
+    (rf/dispatch-sync [:init-db])
+    (rf/dispatch [:incident/select "call-shift-lead"])
+    (let [incident @(rf/subscribe [:incident/state])]
+      (is (true? (:done incident)))
+      (is (= :success (:outcome incident)))
+      (is (= 1 (count (:history incident)))))))
+
+(deftest restart-resets-to-the-start-node
+  (testing ":incident/restart returns to initial-state after finishing"
+    (rf/dispatch-sync [:init-db])
+    (rf/dispatch [:incident/select "call-shift-lead"])
+    (rf/dispatch [:incident/restart])
+    (let [incident @(rf/subscribe [:incident/state])]
+      (is (= "detect" (:current incident)))
+      (is (false? (:done incident))))))
+
+(deftest narrate-toggle-flips-the-flag
+  (testing ":narrate/toggle flips :narrate? each dispatch"
+    (rf/dispatch-sync [:init-db])
+    (is (true? @(rf/subscribe [:narrate/on?])))
+    (rf/dispatch [:narrate/toggle])
+    (is (false? @(rf/subscribe [:narrate/on?])))))
+
+(deftest route-set-from-hash-resolves-known-and-unknown-hashes
+  (testing "route->view-id maps #/spark to :spark and any other hash back to the first view"
+    (rf/dispatch-sync [:init-db])
+    (rf/dispatch [:route/set-from-hash "#/spark"])
+    (is (= :spark @(rf/subscribe [:app/route])))
+    (rf/dispatch [:route/set-from-hash "#/nonexistent"])
+    (is (= :home @(rf/subscribe [:app/route])))))

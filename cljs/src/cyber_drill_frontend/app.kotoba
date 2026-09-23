@@ -1,0 +1,201 @@
+(ns cyber-drill-frontend.app
+  "cloud-itonami/cyber-drill SPA shell.
+
+  Faithful ClojureScript replacement of the two former SvelteKit pages
+  (ADR-2608260900): `svelte/src/routes/+page.svelte` (the incident-drill
+  HUD) and `svelte/src/routes/spark/+page.svelte` (Three.js 3D samples).
+  Built on this workspace's standard stack (reagent + re-frame + jp-go-dds)
+  instead of SvelteKit.
+
+  Single-page app (ADR-2608080100): one document, one mount, a data table of
+  views drives both nav and routing (URL fragment, e.g. `#/spark`), not two
+  separate HTML documents.
+
+  What did NOT get ported, and why:
+
+  - The 3D canvas itself (`$lib/three-renderer`, Three.js: WebVR incident
+    scene + spark/splat-cloud/gaussian/4D demos). Three.js is banned for new
+    code under this workspace's 3D rule (all 3D goes through kami-engine:
+    WebGPU+WGSL first, WebGL2 fallback). The renderer was moved verbatim to
+    `legacy/three-renderer/` (not deleted, not wired). Rebuilding the 3D view
+    on kami-engine is an open product decision this migration did not make.
+  - The real vendor scenario content (`scenarios/semiconductor-chem-plant.ts`,
+    14 nodes / 2 terminals, NIST-CSF/IEC-62443/METI/IPA-graded). That file is
+    TypeScript, vendor-private, and explicitly out of scope for this
+    migration (not modified, not ported, not duplicated here). The demo
+    scenario below (`sample-incident`) is 2 nodes of placeholder content that
+    exists only to exercise the state machine + HUD wiring end to end; it is
+    NOT the product's real training content.
+
+  What DID get ported: per docs/adr/0001, the choice-scenario state machine
+  the Svelte page drove (`applySelection`/`initialState` from
+  `@etzhayyim/kami-engine-sdk/webvr`) was itself already ported 1:1 to
+  ClojureScript upstream as `kotoba-lang/kami-webvr`
+  (`kami.webvr.incident-pregel` / `kami.webvr.types`), consumed here as a
+  workspace git dep (see deps.edn) instead of being re-implemented."
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
+            [reagent.dom :as rdom]
+            [re-frame.core :as rf]
+            [jp-go-dds.core :as dds]
+            [kami.webvr.types :as webvr-types]
+            [kami.webvr.incident-pregel :as webvr]))
+
+;; -- demo scenario (NOT the vendor content — see ns docstring) -----------
+
+(def sample-incident
+  {:id "cyber-drill.sample.v1"
+   :title "サンプル初動演習（配線確認用のダミーシナリオ）"
+   :synopsis "実際の訓練シナリオは scenarios/semiconductor-chem-plant.ts（vendor-private、この移行では対象外）。ここにあるのは state machine と HUD の配線を確認するための 2 ノードのダミー。"
+   :start "detect"
+   :nodes
+   {"detect"
+    {:id "detect" :stage :detect :severity :medium :location :scada-room
+     :briefing "SCADA HMI がレシピテーブルの改ざんを検知した。"
+     :choices [{:id "call-shift-lead" :label "シフトリーダーに連絡する"
+                :next "resolved" :grade :best :reference "NIST-CSF-2.0"
+                :delta {:mttd-sec 90 :mttr-sec 600 :downtime-min 5
+                        :regulatory-risk-permille 10 :data-loss-gb 0
+                        :cost-yen-deci 500}}]
+     :terminal nil}
+    "resolved"
+    {:id "resolved" :stage :recover :severity :info :location :scada-room
+     :briefing "初動対応が完了した。"
+     :choices [] :terminal :success}}})
+
+;; -- app-db ----------------------------------------------------------------
+
+(def views
+  "The data table that drives both nav and routing (ADR-2608080100) — the
+   two former SvelteKit routes, now two views of one SPA."
+  [{:id :home :hash "" :label "初動演習"}
+   {:id :spark :hash "spark" :label "3D サンプル（legacy）"}])
+
+(defn- route->view-id [hash]
+  ;; "#/spark" -> "spark", "#spark" -> "spark", "" / "#" / "#/" -> "".
+  (let [h (str/replace (or hash "") #"^#/?" "")]
+    (:id (or (first (filter #(= h (:hash %)) views)) (first views)))))
+
+(def default-db
+  {:route (route->view-id (if (exists? js/window) (.. js/window -location -hash) ""))
+   :incident (webvr/initial-state sample-incident)
+   :narrate? true})
+
+;; -- events ------------------------------------------------------------
+
+(rf/reg-event-db :init-db (fn [_ _] default-db))
+
+(rf/reg-event-db
+ :route/set-from-hash
+ (fn [db [_ hash]] (assoc db :route (route->view-id hash))))
+
+(rf/reg-event-db
+ :incident/select
+ (fn [db [_ choice-id]]
+   (update db :incident #(webvr/apply-selection sample-incident % choice-id))))
+
+(rf/reg-event-db
+ :incident/restart
+ (fn [db _] (assoc db :incident (webvr/initial-state sample-incident))))
+
+(rf/reg-event-db
+ :narrate/toggle
+ (fn [db _] (update db :narrate? not)))
+
+;; -- subs ----------------------------------------------------------------
+
+(rf/reg-sub :app/route (fn [db _] (:route db)))
+(rf/reg-sub :incident/state (fn [db _] (:incident db)))
+(rf/reg-sub :narrate/on? (fn [db _] (:narrate? db)))
+(rf/reg-sub
+ :incident/current-node
+ :<- [:incident/state]
+ (fn [incident _] (get-in sample-incident [:nodes (:current incident)])))
+
+;; -- view: nav -------------------------------------------------------------
+
+(defn- nav []
+  (let [route @(rf/subscribe [:app/route])]
+    (into [dds/row]
+          (map (fn [{:keys [id hash label]}]
+                 [dds/button label
+                  {:type (if (= id route) :solid-fill :outline)
+                   :href (str "#/" hash)}])
+               views))))
+
+;; -- view: home (incident drill) ------------------------------------------
+
+(defn- kpi-panel [kpi]
+  [dds/grid {:min "140px"}
+   [dds/card [:span "MTTR"] [:strong (str (:mttr-sec kpi) "s")]]
+   [dds/card [:span "Downtime"] [:strong (str (:downtime-min kpi) "m")]]
+   [dds/card [:span "Risk"] [:strong (str (:regulatory-risk-permille kpi) "‰")]]
+   [dds/card [:span "DataLoss"] [:strong (str (:data-loss-gb kpi) " GB")]]
+   [dds/card [:span "Cost"] [:strong (str "¥" (:cost-yen-deci kpi))]]])
+
+(defn- home-view []
+  (let [incident @(rf/subscribe [:incident/state])
+        node @(rf/subscribe [:incident/current-node])
+        narrate? @(rf/subscribe [:narrate/on?])]
+    [dds/container
+     [dds/section {:title (:title sample-incident)}
+      [:p (:synopsis sample-incident)]
+      (when node
+        [dds/stack
+         [dds/chip-label (name (:stage node)) {:color "blue"}]
+         [:p (:briefing node)]
+         (kpi-panel (:kpi incident))
+         (if (:done incident)
+           [dds/notification-banner
+            {:type (if (= :success (:outcome incident)) :success :error)
+             :heading (str "終了 — outcome: " (name (or (:outcome incident) "?")))}]
+           (into [dds/row]
+                 (map (fn [choice]
+                        [dds/button (:label choice)
+                         {:type :solid-fill
+                          :attrs {:on-click #(rf/dispatch [:incident/select (:id choice)])}}])
+                      (:choices node))))
+         [dds/row
+          [dds/button (if narrate? "🔊 音声 ON" "🔇 音声 OFF")
+           {:type :text :attrs {:on-click #(rf/dispatch [:narrate/toggle])}}]
+          (when (:done incident)
+            [dds/button "もう一度" {:type :outline
+                                    :attrs {:on-click #(rf/dispatch [:incident/restart])}}])]])]]))
+
+;; -- view: spark (parked — Three.js retired, kami-engine rebuild pending) --
+
+(defn- spark-view []
+  [dds/container
+   [dds/section {:title "3D サンプル（一時停止）"}
+    [dds/notification-banner
+     {:type :info-1
+      :heading "Three.js 実装は legacy/three-renderer/ に退避済み。配線されていない。"}]
+    [:p "元の 4 つのデモ（3D Splat Cloud / Anisotropic Gaussian / Temporal 4D / "
+     "Dyno Shader Graph）は Three.js 実装で、このワークスペースの 3D 規則
+      （すべての 3D は kami-engine 経由。WebGPU+WGSL 優先、WebGL2 フォールバック。
+      Three.js は新規コードで禁止）に反するため移植していない。"]
+    [:p "元のコードは削除せず " [:code "legacy/three-renderer/"]
+     " にそのまま保存してある。kami-engine の上でこのビューを再構築するかは、
+      この移行では決めていない製品判断として残っている。"]]])
+
+;; -- view: root --------------------------------------------------------
+
+(defn view []
+  (let [route @(rf/subscribe [:app/route])]
+    [:div
+     [nav]
+     (case route
+       :spark [spark-view]
+       [home-view])]))
+
+;; -- mount -----------------------------------------------------------------
+
+(defn- listen-hashchange! []
+  (when (exists? js/window)
+    (.addEventListener js/window "hashchange"
+                        #(rf/dispatch [:route/set-from-hash (.. js/window -location -hash)]))))
+
+(defn main []
+  (rf/dispatch-sync [:init-db])
+  (listen-hashchange!)
+  (rdom/render [view] (.getElementById js/document "app")))

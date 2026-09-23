@@ -1,9 +1,9 @@
 # ADR-0001 — 抽出で WebVR SDK のリンクが切れた（記録し、黙って直さない）
 
-- **状態**: accepted（記録として）
+- **状態**: accepted（記録として）。**2026-09-24 追記で一部解消・一部再発** — 下記参照
 - **日付**: 2026-08-13
 - **範囲**: `cloud-itonami/cyber-drill`
-- **上流**: ADR-2605172400（3 軸分割 / vendor 判定）、ADR-2607102200（`-clj` 接尾辞の撤去と改名）
+- **上流**: ADR-2605172400（3 軸分割 / vendor 判定）、ADR-2607102200（`-clj` 接尾辞の撤去と改名）、ADR-2608260900（Svelte/React 退役、cljs/reagent/re-frame が既定）
 
 ## 文脈
 
@@ -90,3 +90,54 @@
   移植先でもそのまま持ち越せる。
 - 移植が終わるまで、`CLAUDE.md` の「`pnpm test` で到達性を検証する」は
   **実行できない記述**である。`docs/operator-quickstart.md` §4.2 に明記した。
+
+## 2026-09-24 追記 — cljs 移行で `svelte/` を消した。壊れ方は変わったが直っていない
+
+ADR-2608260900（ワークスペース全体で Svelte/React の新規 UI を退役、
+reagent + re-frame + jp-go-dds が既定）を受けて、`svelte/` をこの repo から
+削除し `cljs/`（reagent + re-frame + jp-go-dds SPA）に置き換えた
+（`agent/svelte-to-cljs-20260924`）。
+
+**このリンク切れ自体は解消した**: `svelte/` が無いので
+`@etzhayyim/kami-engine-sdk/webvr` への `link:` も無い。この ADR が名指し
+した「戻せる場所」の 3 つ目 —— `kotoba-lang/kami-webvr`（webvr モジュールの
+1:1 cljs 移植、`kami.webvr.incident-pregel` / `kami.webvr.types`）—— を
+workspace git dep として `cljs/deps.edn` に足し、`cyber-drill-frontend.app`
+から `:require` した（`src/cyber_drill_frontend/app.kotoba`）。
+
+**だが SPA は今もビルドできない。** 理由はこの ADR が記録した SDK リンク
+切れとは別物: `cljs/package.json` の build script（`orgs/cloud-itonami/recap`
+の同型 build script をそのまま踏襲）が呼ぶ
+`amu compile --target wasm32-browser app` は exit 64
+（`"source input must use .kotoba, .cljk, or .cljc"`）。ファイルパスを渡す
+形に直しても `amu check` まで進めると
+`:kotoba.error/namespace-require-needs-project` →
+`amu module-lock` / `--export` 要求で止まる。実測した限り、
+`--target wasm32-browser` は Kotoba 安全言語のモジュールグラフ（`:export`
+を宣言した `.kotoba` モジュール同士の依存）を WASM へコンパイルする経路で
+あって、`reagent` / `re-frame` / `jp-go-dds`（Maven 由来の通常の
+ClojureScript ライブラリ）を `:require` する namespace を解決する経路
+ではない。詳細と実際のエラー全文は
+`docs/operator-quickstart.md` §4.1（2026-09-24 実測）。
+
+この build script は `orgs/cloud-itonami/recap/cljs/package.json` の
+`amu compile --target wasm32-browser app` をそのまま複写したものだが、
+recap 側がこのコマンドで実際にビルドが通ったことを検証したログは
+見つからなかった（`recap` の `93e3795` は "Text only; no mirror;
+fix-forward" — 呼び出し文字列の一括置換であって実行結果の確認ではない）。
+つまり reagent/re-frame な cljs アプリを `amu compile --target
+wasm32-browser` でブラウザ向けにビルドする経路は、この workspace の
+どこでも実際に緑になったことが確認できていない可能性がある —— これは
+cyber-drill 固有の欠陥ではなく、確認したもう 1 リポジトリでも同じ形で
+再発した。
+
+- `legacy/three-renderer/`（旧 Three.js WebVR/spark レンダラ）は verbatim で
+  保存し、配線していない。Three.js はこのワークスペースの 3D 規則
+  （すべての 3D は kami-engine 経由）で新規コードとして禁止されているため、
+  移植の選択肢に入れなかった。kami-engine の上で再構築するかは製品判断
+  として未決のまま残す。
+- `scenarios/semiconductor-chem-plant.ts`（vendor-private な実シナリオ）は
+  この移行の対象外で無改変。`cljs/src/cyber_drill_frontend/app.kotoba` が
+  `kami.webvr.incident-pregel` を駆動するのに使っているのは、配線確認用の
+  2 ノードのダミーシナリオ（`sample-incident`）であって、実際の訓練内容
+  ではない。

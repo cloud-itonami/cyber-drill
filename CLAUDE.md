@@ -1,6 +1,8 @@
 # etzhayyim-project-cyber-drill — VENDOR-PRIVATE
 
-OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs. Built on `@etzhayyim/kami-engine-sdk/webvr` (public SDK) + proprietary branching-playbook scenarios (this project).
+OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs. The choice-scenario state machine the SPA drives (originally `@etzhayyim/kami-engine-sdk/webvr`) is ported 1:1 to ClojureScript upstream as `kotoba-lang/kami-webvr` + proprietary branching-playbook scenarios (this project, `scenarios/`).
+
+**2026-09-24: the frontend was migrated from Svelte to ClojureScript** (reagent + re-frame + jp-go-dds, ADR-2608260900). `svelte/` no longer exists. See the root README.md "いま何が在るか" table and `docs/adr/0001-extraction-severed-the-webvr-sdk-link.md`'s 2026-09-24 addendum for the current (as of that date, not-building) state of `cljs/`.
 
 ## Boundary (ADR-2605172400 3-axis split)
 
@@ -17,18 +19,19 @@ OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs
 | 項目 | 値 |
 |---|---|
 | Domain | `cyber-drill.etzhayyim.com` *(planned)* |
-| Runtime | Single Worker (TS Native), Svelte 5 SPA |
-| Consumer of | `@etzhayyim/kami-engine-sdk/webvr` |
+| Runtime | Single Worker (TS Native), reagent + re-frame + jp-go-dds SPA (`cljs/`) |
+| Consumer of | `kotoba-lang/kami-webvr` (`kami.webvr.incident-pregel` / `kami.webvr.types`) |
 
 ## Layout
 
 ```
-60-apps/etzhayyim-project-cyber-drill/
+cyber-drill/
 ├── CLAUDE.md                              # this file
-├── scenarios/                             # vendor-private scenario data
+├── scenarios/                             # vendor-private scenario data (out of scope for the cljs migration)
 │   └── semiconductor-chem-plant.ts        # 半導体・電子材料プラント インシデント
-└── svelte/                                # Svelte SPA shell
-    └── src/routes/+page.svelte
+├── cljs/                                  # reagent + re-frame + jp-go-dds SPA shell
+│   └── src/cyber_drill_frontend/app.kotoba
+└── legacy/three-renderer/                 # retired Three.js 3D view, unwired (3D rule bans new Three.js code)
 ```
 
 ## Adding a scenario
@@ -36,7 +39,7 @@ OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs
 1. Create `scenarios/<slug>.ts` exporting an `IncidentScenario`.
 2. Grade every `choice.grade` against an SSoT framework (`NIST-CSF-2.0`, `IEC-62443-3-3`, `METI-Factory-CSG`, `IPA-J-CSIP`, `JPCERT`) — empty `reference` is allowed only for follow-up nodes that route a player back to the main flow.
 3. KPI invariants (AT Lexicon float-free): `mttdSec / mttrSec / downtimeMin / dataLossGb / costYenDeci` are non-negative integers; `regulatoryRiskPermille` is clamped 0–1000.
-4. Verify reachability with `pnpm test` against the SDK's `webvr.test.ts` invariants: every node must be reachable from `start`; every terminal must have an outcome.
+4. Reachability invariants (every node reachable from `start`, every terminal has an outcome) are asserted in `scenarios/semiconductor-chem-plant.test.ts`, but this repo has no `test` script wired to run it (`vitest` isn't a dependency) — see `docs/operator-quickstart.md` §4.2. Out of scope for the 2026-09-24 Svelte→cljs migration, which did not touch `scenarios/`.
 
 ## Float discipline
 
