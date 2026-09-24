@@ -1,6 +1,6 @@
 # etzhayyim-project-cyber-drill — VENDOR-PRIVATE
 
-OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs. Built on `@etzhayyim/kami-engine-sdk/webvr` (public SDK) + proprietary branching-playbook scenarios (this project).
+OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs. Built on `kotoba-lang/kami-webvr` (ClojureScript port of the former `@etzhayyim/kami-engine-sdk/webvr`, see `docs/adr/0001-extraction-severed-the-webvr-sdk-link.md`) + proprietary branching-playbook scenarios (this project). As of 2026-09-24 the incident-progression logic (`kami.webvr.incident-pregel`) is wired into a reagent + re-frame + jp-go-dds SPA at `cljs/`; the 3D WebXR viewport itself is not yet ported (2D UI over the same state, see `cljs/src/cyber_drill/app.cljk`'s docstring).
 
 ## Boundary (ADR-2605172400 3-axis split)
 
@@ -17,26 +17,27 @@ OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs
 | 項目 | 値 |
 |---|---|
 | Domain | `cyber-drill.etzhayyim.com` *(planned)* |
-| Runtime | Single Worker (TS Native), Svelte 5 SPA |
-| Consumer of | `@etzhayyim/kami-engine-sdk/webvr` |
+| Runtime | Single Worker (TS Native), cljs SPA (reagent + re-frame + jp-go-dds) |
+| Consumer of | `kotoba-lang/kami-webvr` (`kami.webvr.incident-pregel`, `kami.webvr.types`) |
 
 ## Layout
 
 ```
-60-apps/etzhayyim-project-cyber-drill/
+cyber-drill/
 ├── CLAUDE.md                              # this file
 ├── scenarios/                             # vendor-private scenario data
 │   └── semiconductor-chem-plant.ts        # 半導体・電子材料プラント インシデント
-└── svelte/                                # Svelte SPA shell
-    └── src/routes/+page.svelte
+├── cljs/                                  # SPA shell (single-page app, ADR-2608080100)
+│   └── src/cyber_drill/{scenario.cljc,app.cljk}
+└── worker/                                # CF Worker (key-gated static host)
 ```
 
 ## Adding a scenario
 
-1. Create `scenarios/<slug>.ts` exporting an `IncidentScenario`.
+1. Create `scenarios/<slug>.ts` exporting an `IncidentScenario`, AND a matching entry in `cljs/src/cyber_drill/scenario.cljc` (EDN shape from `kami.webvr.types` — see that file's ns docstring for the key-casing convention, e.g. `mttdSec` -> `:mttd-sec`). The `.ts` file is the vendor-private record; the `.cljc` file is what the SPA actually runs.
 2. Grade every `choice.grade` against an SSoT framework (`NIST-CSF-2.0`, `IEC-62443-3-3`, `METI-Factory-CSG`, `IPA-J-CSIP`, `JPCERT`) — empty `reference` is allowed only for follow-up nodes that route a player back to the main flow.
 3. KPI invariants (AT Lexicon float-free): `mttdSec / mttrSec / downtimeMin / dataLossGb / costYenDeci` are non-negative integers; `regulatoryRiskPermille` is clamped 0–1000.
-4. Verify reachability with `pnpm test` against the SDK's `webvr.test.ts` invariants: every node must be reachable from `start`; every terminal must have an outcome.
+4. Verify reachability with `cd cljs && npm test` (`cyber_drill.app-test`'s `every-node-is-reachable-from-start` / `happy-path-reaches-a-success-terminal`): every node must be reachable from `start`; the graded-best path must reach a `:success` terminal.
 
 ## Float discipline
 

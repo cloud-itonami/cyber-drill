@@ -16,24 +16,21 @@ IPA J-CSIP のどの要求に照らして良手・悪手なのかという採点
 `immersive-vr` をネイティブ対応し、iOS Safari は `deviceorientation` の
 magic-window にフォールバックする。アプリのインストールは要らない。
 
-## いま何が在るか（実測 2026-08-13）
+## いま何が在るか（2026-09-24、cljs 移行後）
 
 | 部品 | 実体 | 状態 |
 |---|---|---|
-| シナリオ | `scenarios/semiconductor-chem-plant.ts`（20 KB） | 半導体・電子材料プラントのインシデント。**14 ノード / 終端 2**（`lessonsLearned` = success、`coverupFail` = failure） |
-| シナリオの不変条件テスト | `scenarios/semiconductor-chem-plant.test.ts` | **走らない**（下記） |
-| SPA | `svelte/`（Svelte 5 + SvelteKit adapter-static + three.js） | **ビルドできない**（下記） |
-| 配信 Worker | `worker/`（TS、CF Workers） | 型検査は通る。鍵ゲート + HMAC セッション cookie |
+| シナリオ | `scenarios/semiconductor-chem-plant.ts`（20 KB） | 半導体・電子材料プラントのインシデント。**14 ノード / 終端 2**（`lessonsLearned` = success、`coverupFail` = failure）。`cljs/src/cyber_drill/scenario.cljc` に EDN 形へ 1:1 移植 |
+| SPA | `cljs/`（reagent + re-frame + jp-go-dds、kami-webvr 駆動） | ビルド・単体テスト緑（本 commit で実測）。シナリオ進行は `kami.webvr.incident-pregel` が実際に駆動。**3D ビューポート（旧 WebXR ウォークスルー）は未移植** — 状態は 2D UI で表示 |
+| 配信 Worker | `worker/`（TS、CF Workers） | 型検査は通る。鍵ゲート + HMAC セッション cookie。`assets.directory` は `../cljs/public` |
 | 鍵発行 | `worker/scripts/gen-key.mjs` | 動く |
 
-**この repo は現状ビルドできない。** 抽出時に SPA の SDK 依存が切れたまま
-持ち込まれており、`svelte/` の `pnpm build` は
-`Rollup failed to resolve import "@etzhayyim/kami-engine-sdk/webvr"` で落ちる。
-`pnpm install` は**成功する**（pnpm の `link:` は遅延シンボリックリンクなので、
-リンク先が無くても exit 0 になる）ので、install の緑をビルド可能性と読まないこと。
-
-診断・回避の経緯は **[docs/adr/0001-extraction-severed-the-webvr-sdk-link.md](docs/adr/0001-extraction-severed-the-webvr-sdk-link.md)**、
-いま実際に踏める手順は **[docs/operator-quickstart.md](docs/operator-quickstart.md)**。
+`svelte/`（Svelte 5 + SvelteKit adapter-static、`@etzhayyim/kami-engine-sdk`
+への dangling `link:` 依存でビルド不能だった）は削除済み。抽出で切れたリンクの
+記録は **[docs/adr/0001-extraction-severed-the-webvr-sdk-link.md](docs/adr/0001-extraction-severed-the-webvr-sdk-link.md)**
+（本 commit で状態を更新）、いま実際に踏める手順は
+**[docs/operator-quickstart.md](docs/operator-quickstart.md)**。
+`wrangler deploy` は本移行では実行していない（UNVERIFIED）。
 
 ## 境界 — vendor-only
 
@@ -64,7 +61,12 @@ vendor**:
 ├── scenarios/                             vendor-private なシナリオ本体
 │   ├── semiconductor-chem-plant.ts
 │   └── semiconductor-chem-plant.test.ts
-├── svelte/                                Svelte 5 SPA シェル（WebVR ビュー）
+├── cljs/                                  SPA シェル（reagent + re-frame + jp-go-dds）
+│   ├── deps.edn / shadow-cljs.edn / package.json
+│   ├── public/index.html                  single document（ADR-2608080100）
+│   ├── src/cyber_drill/scenario.cljc      シナリオの EDN 移植
+│   ├── src/cyber_drill/app.cljk           view-table・re-frame・kami-webvr 配線
+│   └── test/cyber_drill/app_test.cljk
 └── worker/                                鍵ゲート付き配信 Worker（CF Workers）
     ├── README.md                          Worker 単体の設計メモ
     ├── src/{index,auth,unlock-page}.ts

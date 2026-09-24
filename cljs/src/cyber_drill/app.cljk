@@ -1,0 +1,261 @@
+(ns cyber-drill.app
+  "cyber-drill appview — reagent + re-frame, view built from jp-go-dds
+  (デジタル庁デザインシステム) hiccup.
+
+  Single-page app (ADR-2608080100): one document (`public/index.html`), one
+  bundle, one mount. The two former SvelteKit routes
+  (`svelte/src/routes/+page.svelte` — the incident scene,
+  `svelte/src/routes/spark/+page.svelte` — Three.js Spark 2.0 render
+  samples) are folded into `views` below, a plain vector of view-maps; nav
+  is generated FROM that data (`nav-view`), and which one is on screen is
+  re-frame state (`:route/view`), not a second HTML document. Addressability
+  is the URL fragment (`#/`, `#/spark`) via `hashchange`, not server routing
+  — this repo ships one static bundle behind a key-gate Worker
+  (`worker/src/index.ts`), so there is nothing server-side to route to.
+
+  ## Incident scene: ported to kami-webvr, 3D viewport deferred
+
+  The incident scene's game logic (`+page.svelte`'s `createIncidentVrEngine`
+  call into `@etzhayyim/kami-engine-sdk/webvr`) is what
+  docs/adr/0001-extraction-severed-the-webvr-sdk-link.md names as the actual
+  successor: `kami.webvr.incident-pregel/initial-state` and
+  `apply-selection`, operating on the `cyber-drill.scenario/semi-plant-incident`
+  data (ported 1:1 from `scenarios/semiconductor-chem-plant.ts` — see that
+  namespace's docstring). Those two pure functions ARE wired in below and
+  drive real state transitions.
+
+  What is NOT ported: the WebXR/`immersive-vr` 3D render
+  (`svelte/src/lib/three-renderer/webvr/*.ts`, Three.js) that turned each
+  `SceneDescriptor` into a walkable scene with gaze-dwell selection. This
+  workspace forbids Three.js outright (all 3D goes through kami-engine —
+  WebGPU+WGSL first, WebGL 2.0 fallback) and no cljs kami-engine viewport
+  binding for `SceneDescriptor` was reachable from this repo within this
+  migration's scope. `incident-view` below is a real, functioning
+  jp-go-dds 2D UI over the same state machine — briefing text, KPI tally,
+  graded choice buttons, terminal outcome — not a mock. It says so, in the
+  UI itself (`three-d-notice`), rather than silently presenting a 2D page as
+  if the WebVR walkthrough were unaffected. A future increment can add a
+  kami-engine WebGPU/WebGL viewport as an additional renderer driven by the
+  same `:incident/state` without touching this state machine.
+
+  ## Spark route: not ported (Three.js-only, no successor)
+
+  `spark/+page.svelte` had no game logic of its own — it was four Three.js
+  Spark 2.0 Gaussian-splat render tech demos (`splat`, `ellipsoid`,
+  `temporal`, `dyno`) vendored at `svelte/src/lib/three-renderer/spark/*.ts`,
+  entirely a Three.js showcase. There is no kami-webvr or kami-engine
+  successor for it (unlike the incident scene, nothing here maps to
+  `kami.webvr.*`), and vendoring Three.js into this workspace is itself
+  forbidden, so `spark-view` is a deferred notice, not a port — seeing
+  `deferred?` on that view's map (below) is the signal, not prose alone.
+
+  `public/index.html`'s inlined <style> was produced once, at authoring
+  time, by `jp-go-dds.page/->page` (see app-warehouse's `cljs/src/warehouse/app.cljk`
+  for the exact regeneration recipe/deps.edn sha this was copied from)."
+  (:require [reagent.dom :as rdom]
+            [re-frame.core :as rf]
+            [clojure.string :as str]
+            [jp-go-dds.core :as dds]
+            [kami.webvr.incident-pregel :as pregel]
+            [cyber-drill.scenario :as scenario]))
+
+;; -- views-as-data -----------------------------------------------------------
+;;
+;; The single source nav is generated from. Adding a view means adding a
+;; map here, not a new HTML document.
+
+(def views
+  [{:view/id :incident :view/path "/" :view/label "初動演習" :view/deferred? false}
+   {:view/id :spark :view/path "/spark" :view/label "Spark Samples" :view/deferred? true}])
+
+(def default-view :incident)
+
+(defn path->view [path]
+  (or (:view/id (first (filter #(= path (:view/path %)) views)))
+      default-view))
+
+(defn view->path [view-id]
+  (or (:view/path (first (filter #(= view-id (:view/id %)) views))) "/"))
+
+(defn current-hash-path []
+  (let [h (.. js/window -location -hash)]
+    (if (str/starts-with? h "#")
+      (let [p (subs h 1)]
+        (if (str/blank? p) "/" p))
+      "/")))
+
+;; -- db ------------------------------------------------------------------
+
+(defn fresh-incident-state []
+  (pregel/initial-state scenario/semi-plant-incident))
+
+(defn default-db []
+  {:route/view (path->view (current-hash-path))
+   :incident/state (fresh-incident-state)})
+
+(rf/reg-event-db
+ :initialize-db
+ (fn [_ _] (default-db)))
+
+;; Pure — reflects wherever the browser's URL fragment already points.
+;; Called on boot and on every `hashchange` (see `main`, below).
+(rf/reg-event-db
+ :route/set-view
+ (fn [db [_ view]] (assoc db :route/view view)))
+
+;; Navigation is a real anchor `href` to `#<path>` (see `nav-view`); the
+;; browser updates `location.hash` on click and fires `hashchange` itself,
+;; which dispatches `:route/set-view`. No JS-side hash mutation needed here.
+
+(rf/reg-event-db
+ :incident/select-choice
+ (fn [db [_ choice-id]]
+   (update db :incident/state
+           #(pregel/apply-selection scenario/semi-plant-incident % choice-id))))
+
+(rf/reg-event-db
+ :incident/restart
+ (fn [db _] (assoc db :incident/state (fresh-incident-state))))
+
+(rf/reg-sub :route/view (fn [db _] (:route/view db)))
+(rf/reg-sub :incident/state (fn [db _] (:incident/state db)))
+(rf/reg-sub :incident/current-node
+            (fn [db _] (get-in scenario/semi-plant-incident
+                               [:nodes (:current (:incident/state db))])))
+(rf/reg-sub :incident/done? (fn [db _] (boolean (:done (:incident/state db)))))
+(rf/reg-sub :incident/outcome (fn [db _] (:outcome (:incident/state db))))
+(rf/reg-sub :incident/kpi (fn [db _] (:kpi (:incident/state db))))
+
+;; -- shared chrome -----------------------------------------------------------
+
+(defn nav-view []
+  (let [current @(rf/subscribe [:route/view])]
+    (dds/horizontal-menu
+     {:label "cyber-drill navigation"}
+     (mapv (fn [{:view/keys [id path label]}]
+             {:href (str "#" path) :label label :current? (= id current)})
+           views))))
+
+(defn three-d-notice []
+  (dds/notification-banner
+   {:type :info-1 :heading "3D ビューポートは未移植"}
+   [:p {:class "dads-u-mono-16N-150"}
+    (str "旧 svelte/src/lib/three-renderer/webvr/*.ts（Three.js）の WebXR "
+         "ウォークスルーは、この移行では kami-engine 側の WebGPU/WebGL "
+         "ビューポートに置き換わっていません（Three.js は本ワークスペースで"
+         "全面禁止のため）。下のシナリオ状態・進行・選択肢は "
+         "kami.webvr.incident-pregel（ClojureScript, kami-webvr 移植）が実際に"
+         "駆動する本物の状態遷移です — 見た目だけが 2D です。")]))
+
+;; -- incident view -------------------------------------------------------
+
+(defn kpi-grid [kpi]
+  (dds/grid {:min "9rem"}
+    (dds/card [:p {:class "dds-ext-lead"} "MTTR"] [:strong (str (:mttr-sec kpi) "s")])
+    (dds/card [:p {:class "dds-ext-lead"} "Downtime"] [:strong (str (:downtime-min kpi) "m")])
+    (dds/card [:p {:class "dds-ext-lead"} "Risk"] [:strong (str (:regulatory-risk-permille kpi) "‰")])
+    (dds/card [:p {:class "dds-ext-lead"} "DataLoss"] [:strong (str (:data-loss-gb kpi) " GB")])
+    (dds/card [:p {:class "dds-ext-lead"} "Cost"]
+              [:strong (str "¥" (quot (:cost-yen-deci kpi) 10))])))
+
+(defn briefing-block [briefing]
+  (into [:div {:class "dds-ext-stack"}]
+        (map (fn [line] [:p {:class "dads-u-mono-16N-150"} line])
+             (str/split (or briefing "") #"\n"))))
+
+(defn grade-color [grade]
+  (case grade :best "blue" :ok "gray" :bad "red" "gray"))
+
+(defn choice-button [{:keys [id label hint grade]}]
+  [:div {:class "dds-ext-card" :key (name id)}
+   [:div {:class "dds-ext-row"}
+    (dds/chip-label (name grade) {:color (grade-color grade)})
+    (when hint [:span {:class "dds-ext-lead"} hint])]
+   (dds/button label {:type :outline :size "md"
+                       :attrs {:on-click #(rf/dispatch [:incident/select-choice id])}})])
+
+(defn outcome-banner [outcome kpi]
+  (dds/notification-banner
+   {:type (if (= outcome :success) :success :error)
+    :heading (if (= outcome :success) "演習終了 — 成功" "演習終了 — 失敗")}
+   (kpi-grid kpi)
+   (dds/button "もう一度" {:type :solid-fill :size "md"
+                          :attrs {:on-click #(rf/dispatch [:incident/restart])}})))
+
+(defn incident-view []
+  (let [node @(rf/subscribe [:incident/current-node])
+        kpi @(rf/subscribe [:incident/kpi])
+        done? @(rf/subscribe [:incident/done?])
+        outcome @(rf/subscribe [:incident/outcome])]
+    (dds/container
+
+     [:section {:class "dds-ext-section"}
+      (dds/heading 1 (:title scenario/semi-plant-incident))
+      [:p {:class "dds-ext-lead"} (:synopsis scenario/semi-plant-incident)]]
+
+     [:section {:class "dds-ext-section"}
+      (three-d-notice)]
+
+     [:section {:class "dds-ext-section"}
+      (dds/heading 2 "状況" {:size "24"})
+      [:div {:class "dds-ext-row"}
+       (dds/chip-label (str "stage: " (name (:stage node))) {:color "blue"})
+       (dds/chip-label (str "severity: " (name (:severity node))) {:color "gray"})
+       (dds/chip-label (str "location: " (name (:location node))) {:color "gray"})]
+      (briefing-block (:briefing node))]
+
+     [:section {:class "dds-ext-section"}
+      (dds/heading 2 "KPI" {:size "24"})
+      (kpi-grid kpi)]
+
+     (if done?
+       [:section {:class "dds-ext-section"} (outcome-banner outcome kpi)]
+       [:section {:class "dds-ext-section"}
+        (dds/heading 2 "選択肢" {:size "24"})
+        (into [:div {:class "dds-ext-stack"}] (map choice-button (:choices node)))]))))
+
+;; -- spark view (deferred, no Three.js) -----------------------------------
+
+(def spark-demo-names
+  ;; The four demo ids `spark/+page.svelte` listed, kept only as a record of
+  ;; what was there — none of these render; see the ns docstring.
+  ["3D Splat Cloud" "Anisotropic Gaussian" "Temporal 4D" "Dyno Shader Graph"])
+
+(defn spark-view []
+  (dds/container
+   [:section {:class "dds-ext-section"}
+    (dds/heading 1 "Spark Samples")
+    (dds/notification-banner
+     {:type :info-1 :heading "この画面は移植されていません（Three.js 専用のため）"}
+     [:p {:class "dads-u-mono-16N-150"}
+      (str "旧 svelte/spark/+page.svelte は "
+           "svelte/src/lib/three-renderer/spark/*.ts（Three.js の Spark 2.0 "
+           "ガウシアン・スプラット render tech demo、4 種）を表示するだけの"
+           "ページで、cyber-drill のシナリオ・ロジックとは無関係でした。"
+           "本ワークスペースは Three.js を全面禁止しており"
+           "（3D は kami-engine の WebGPU/WGSL 優先・WebGL 2.0 fallback のみ）、"
+           "この 4 デモに対応する kami-webvr / kami-engine 側の実装も"
+           "今回の移行スコープには含まれません。デモ名のみ記録として残します:")]
+     (apply dds/list {:marker "number"}
+            (map (fn [n] [:span {:class "dads-u-mono-16N-150"} n]) spark-demo-names)))]))
+
+;; -- root view / mount -----------------------------------------------------
+
+(defn root-view []
+  (let [current @(rf/subscribe [:route/view])]
+    [:div
+     (nav-view)
+     (case current
+       :incident [incident-view]
+       :spark [spark-view]
+       [incident-view])]))
+
+(defn render []
+  (rdom/render [root-view] (.getElementById js/document "app")))
+
+(defn ^:export main []
+  (rf/dispatch-sync [:initialize-db])
+  (.addEventListener js/window "hashchange"
+                      (fn [_]
+                        (rf/dispatch [:route/set-view (path->view (current-hash-path))])))
+  (render))

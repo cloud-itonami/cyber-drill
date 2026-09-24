@@ -1,9 +1,36 @@
 # ADR-0001 — 抽出で WebVR SDK のリンクが切れた（記録し、黙って直さない）
 
-- **状態**: accepted（記録として）
-- **日付**: 2026-08-13
+- **状態**: superseded-in-place（2026-09-24 に修復。本文は当時の観測のまま残し、
+  下の「2026-09-24 追記」に帰結を書く。過去の観測を書き換えない —— 文書は
+  最新状態のみを表す原則の例外として、この ADR は「何が起きたか」の記録その
+  ものが価値なので削除しない）
+- **日付**: 2026-08-13（追記 2026-09-24）
 - **範囲**: `cloud-itonami/cyber-drill`
 - **上流**: ADR-2605172400（3 軸分割 / vendor 判定）、ADR-2607102200（`-clj` 接尾辞の撤去と改名）
+
+## 2026-09-24 追記 — 修復した
+
+この ADR が名指した後継 `kotoba-lang/kami-webvr`（`kami.webvr.incident-pregel`
+の `initial-state` / `apply-selection`）を実際に配線した。consumer は
+Svelte/TS から reagent + re-frame + jp-go-dds の cljs SPA（`cljs/`）へ
+書き換え、`svelte/` は削除した。`scenarios/semiconductor-chem-plant.ts` の
+内容は `cljs/src/cyber_drill/scenario.cljc` へ EDN 形で 1:1 移植し、
+シナリオ到達性の不変条件（§4.2 が「検査されていない」と記録したもの）は
+`cljs/test/cyber_drill/app_test.cljk` で実際に検査するようになった。
+
+**未完のまま残したもの**: 3D の WebXR/`immersive-vr` ビューポート
+（`svelte/src/lib/three-renderer/webvr/*.ts`、Three.js）は移植していない。
+本ワークスペースは Three.js を全面禁止しており（3D は kami-engine の
+WebGPU/WGSL 優先・WebGL 2.0 fallback のみ）、この移行のスコープでも
+kami-engine 側のビューポートには手を付けていない。現在はシナリオの状態
+（briefing / KPI / 選択肢 / 終端）を jp-go-dds の 2D UI で表示する
+（`cljs/src/cyber_drill/app.cljk` の `incident-view` / `three-d-notice`）。
+`svelte/src/lib/three-renderer/spark/*.ts`（Three.js Spark 2.0 デモ 4 種、
+`spark/+page.svelte` が表示していたもの）はシナリオ・ロジックと無関係の
+render tech demo で、対応する kami-webvr / kami-engine 実装が無いため移植せず、
+削除した（デモ名のみ `spark-view` に記録として残る）。
+`wrangler deploy` はこの移行では実行していない（UNVERIFIED、
+`docs/operator-quickstart.md` §4.1）。
 
 ## 文脈
 

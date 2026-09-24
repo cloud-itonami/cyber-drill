@@ -1,0 +1,90 @@
+(ns cyber-drill.app-test
+  "Re-frame event/sub tests for the view-table + incident state machine.
+
+  The last two tests restore, in this repo, the invariant that
+  `docs/adr/0001-extraction-severed-the-webvr-sdk-link.md` §4.2 (via
+  `docs/operator-quickstart.md`) recorded as *checked nowhere* since
+  extraction: every terminal is reachable, and the happy path reaches a
+  `:success` terminal. `scenarios/semiconductor-chem-plant.test.ts` asserted
+  this against the TS engine but had no runnable `test` script; this
+  `:node-test` build is the first place it actually runs."
+  (:require [cljs.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.db :as rf-db]
+            [cyber-drill.app :as app]
+            [cyber-drill.scenario :as scenario]
+            [kami.webvr.incident-pregel :as pregel]))
+
+(use-fixtures :each
+  {:before (fn [] (rf/clear-subscription-cache!) (reset! rf-db/app-db {}))})
+
+(deftest views-is-the-single-nav-source
+  (testing "both former svelte routes are present as view-data, no third"
+    (is (= [:incident :spark] (mapv :view/id app/views)))
+    (is (= "/" (app/view->path :incident)))
+    (is (= "/spark" (app/view->path :spark)))
+    (is (= :incident (app/path->view "/")))
+    (is (= :spark (app/path->view "/spark")))
+    (is (= :incident (app/path->view "/unknown-path")))))
+
+(deftest initialize-db-boots-incident-state-from-pregel
+  (testing ":initialize-db seeds :incident/state via kami.webvr.incident-pregel/initial-state"
+    (rf/dispatch-sync [:initialize-db])
+    (is (= :incident @(rf/subscribe [:route/view])))
+    (is (= (pregel/initial-state scenario/semi-plant-incident)
+           @(rf/subscribe [:incident/state])))
+    (is (= :detect-anomaly (:current @(rf/subscribe [:incident/state]))))
+    (is (false? @(rf/subscribe [:incident/done?])))))
+
+(deftest route-set-view-reflects-the-hash-not-a-fixed-value
+  (testing ":route/set-view is what the hashchange listener dispatches"
+    (rf/dispatch-sync [:initialize-db])
+    (rf/dispatch-sync [:route/set-view :spark])
+    (is (= :spark @(rf/subscribe [:route/view])))
+    (rf/dispatch-sync [:route/set-view :incident])
+    (is (= :incident @(rf/subscribe [:route/view])))))
+
+(deftest select-choice-drives-the-real-state-machine
+  (testing "choosing the best first choice moves :current and applies its kpi delta,
+            exactly as kami.webvr.incident-pregel/apply-selection would standalone"
+    (rf/dispatch-sync [:initialize-db])
+    (rf/dispatch-sync [:incident/select-choice :call-shift-lead])
+    (let [state @(rf/subscribe [:incident/state])]
+      (is (= :triage-scope (:current state)))
+      (is (= 30 (:mttd-sec (:kpi state))))
+      (is (= 1 (count (:history state))))
+      (is (= :call-shift-lead (:choice-id (first (:history state))))))))
+
+(deftest restart-resets-to-a-fresh-initial-state
+  (testing ":incident/restart is not a no-op after progress was made"
+    (rf/dispatch-sync [:initialize-db])
+    (rf/dispatch-sync [:incident/select-choice :call-shift-lead])
+    (rf/dispatch-sync [:incident/restart])
+    (is (= (pregel/initial-state scenario/semi-plant-incident)
+           @(rf/subscribe [:incident/state])))))
+
+(deftest every-node-is-reachable-from-start
+  (testing "graph-walk reachability invariant scenarios/*.test.ts could never
+            run (no test runner existed); walk every choice's :next from :start"
+    (let [nodes (:nodes scenario/semi-plant-incident)
+          reachable (loop [frontier [(:start scenario/semi-plant-incident)] seen #{}]
+                      (if (empty? frontier)
+                        seen
+                        (let [id (first frontier)
+                              node (get nodes id)
+                              nexts (remove seen (map :next (:choices node)))]
+                          (recur (into (rest frontier) nexts) (conj seen id)))))]
+      (is (= (set (keys nodes)) reachable)))))
+
+(deftest happy-path-reaches-a-success-terminal
+  (testing "the graded-best choice at every node reaches :lessons-learned / :success"
+    (loop [state (pregel/initial-state scenario/semi-plant-incident) guard 0]
+      (if (:done state)
+        (do (is (= :lessons-learned (:current state)))
+            (is (= :success (:outcome state))))
+        (do (is (< guard 20) "should terminate well within 20 hops")
+            (let [node (get (:nodes scenario/semi-plant-incident) (:current state))
+                  best (or (first (filter #(= :best (:grade %)) (:choices node)))
+                           (first (:choices node)))]
+              (recur (pregel/apply-selection scenario/semi-plant-incident state (:id best))
+                     (inc guard))))))))

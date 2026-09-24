@@ -1,60 +1,42 @@
 # cyber-drill — operator quickstart
 
-**この文書に書いてある手順は、2026-08-13 に全部実際に実行して出力を確認したもの
-だけである。** 通らなかったものは「手順」ではなく「§4 いま通らないこと」に
-落としてある —— 踏めない手順を手順として書かない。
+**この文書は最新状態のみを表す。履歴は git。** 2026-08-13 の `svelte/` 実行記録
+（当時 preflight / ビルドが exit 1 だった詳細）は git 履歴とこのファイルの過去版、
+および `docs/adr/0001-…` を見ること。2026-09-24 の cljs 移行後にここへ残すのは、
+いま実際に踏める手順だけ。
 
 対象読者: この repo を clone して、顧客に訓練 URL を 1 本渡すところまでを
 やる運用者。
 
-前提: `node`（v20+）、`pnpm`（実測 10.26.2）。Cloudflare へ配信するなら
-`wrangler` の認証。
+前提: `node`（v20+）、`pnpm`（Worker 側）、`npm`（`cljs/` 側）。Cloudflare へ
+配信するなら `wrangler` の認証。
 
 ```sh
 git clone git@github.com:cloud-itonami/cyber-drill.git
 cd cyber-drill
 ```
 
-### 実行記録（2026-08-13、`node_modules` を消した素の tree で逐語実行）
-
-| § | コマンド | 実測 exit |
-|---|---|---|
-| 0 | preflight one-liner | **1**（= SDK リンク切れ。現状これが正常な観測） |
-| 1 | `worker$ pnpm install` | 0 |
-| 2 | `worker$ npx tsc --noEmit` | 0（出力なし） |
-| 3 | `worker$ node scripts/gen-key.mjs --tenant=demo-jp` | 0 |
-| 3 | `worker$ node scripts/gen-key.mjs`（引数なし） | 2（usage） |
-| 4.1 | `svelte$ pnpm install` | **0 ← 緑になるが直後のビルドは落ちる** |
-| 4.1 | `svelte$ pnpm run build` | 1（Rollup 解決失敗） |
-
 ---
 
-## 0. まず preflight —— SPA がビルドできる状態かを 1 コマンドで見る
-
-**`pnpm install` の成功はビルド可能性を意味しない。** `svelte/package.json` の
-SDK 依存は pnpm の `link:` 指定で、pnpm はリンク先が存在しなくても
-シンボリックリンクだけ作って **exit 0 を返す**。ビルドまで進んで初めて落ちる。
-先に見る:
+## 0. SPA（`cljs/`）をビルドする
 
 ```sh
-node -e 'const fs=require("fs"),path=require("path");
-const spec=JSON.parse(fs.readFileSync("svelte/package.json","utf8"))
-  .dependencies["@etzhayyim/kami-engine-sdk"];
-const p=path.resolve("svelte",spec.replace(/^link:/,""));
-console.log(fs.existsSync(p)?"OK       "+p:"MISSING  "+p);
-process.exit(fs.existsSync(p)?0:1)'
+cd cljs
+npm install
+npm run release   # amu compile --target wasm32-browser app -> public/js/app.js
+cd ..
 ```
 
-2026-08-13 時点の実際の出力（exit 1）:
+`public/index.html` は `js/app.js` を相対パスで読む単一ドキュメント
+（single-page app、ADR-2608080100）。ユニットテストは
+`cd cljs && npm test`（`amu compile --target wasm32-browser test` →
+`node out/tests.js`）—— `cyber_drill.app-test` にシナリオ到達性の不変条件
+（旧 §4.2 の後継。全ノードが `start` から到達可能 / 選択肢グレード最良の経路が
+`:success` 終端に着く）が入っている。
 
-```
-MISSING  /private/40-engine/kami-engine/kami-engine-sdk
-```
-
-**MISSING が出るのが現在の正常な観測結果**である（理由は
-[docs/adr/0001](adr/0001-extraction-severed-the-webvr-sdk-link.md)）。
-この状態でも §1〜§3 —— Worker の検査と顧客鍵の発行 —— は全部通る。
-SPA のビルドと配信だけが止まる。
+`svelte/`（SvelteKit adapter-static、`@etzhayyim/kami-engine-sdk` への
+dangling `link:` 依存でビルド不能だった旧 SPA）は削除済み。経緯は
+[docs/adr/0001](adr/0001-extraction-severed-the-webvr-sdk-link.md)。
 
 ---
 
@@ -143,52 +125,28 @@ npx wrangler kv key delete --binding=DRILL_KEYS --remote "key:<sha256hex>"
 
 ---
 
-## 4. いま通らないこと（手順として書けないもの）
+## 4. いま通らないこと・未確認のこと
 
-### 4.1 SPA のビルド —— 落ちる
+2026-08-13 時点でここにあった「4.1 SPA のビルドが落ちる」「4.2 シナリオの
+テストランナーが無い」は 2026-09-24 の cljs 移行で両方解消した（§0 参照、
+かつ `cd cljs && npm test` がランナー）—— 古い記述は git 履歴を見ること。
+まだ残っているのは配信そのものの未確認だけ:
 
-```sh
-cd svelte && pnpm install && pnpm run build
-```
+### 4.1 `wrangler deploy` — この移行では実行していない
 
-`pnpm install` は **exit 0**（前述のとおりリンク切れを検出しない）。
-ビルドが落ちる:
+`worker/wrangler.jsonc` の `assets.directory` は `../cljs/public` を指すよう
+更新した（§0 のビルドで `../cljs/public/js/app.js` が作られる前提）が、
+**`wrangler deploy` / `wrangler dev` はこの移行作業では実行していない
+（UNVERIFIED）。** デプロイ前に §0 のビルドが緑であることを自分で確認すること。
 
-```
-error during build:
-[vite]: Rollup failed to resolve import "@etzhayyim/kami-engine-sdk/webvr"
-  from ".../svelte/src/routes/+page.svelte".
-```
-
-したがって `worker/package.json` の `build:assets`、その先の
-`wrangler deploy`（`assets.directory` が `../svelte/build`）も現状は通らない。
-原因と選択肢は [docs/adr/0001](adr/0001-extraction-severed-the-webvr-sdk-link.md)。
-
-> 重い build を回すときは、この workspace の規約どおり
-> `node <root>/scripts/resource-guard.mjs run build -- pnpm run build` を通す
-> （同時に 1 本だけ）。上の実測もこれ経由。
-
-### 4.2 シナリオのテスト —— ランナーが無い
-
-`CLAUDE.md` は「`pnpm test` で `webvr.test.ts` の不変条件に照らして到達性を
-検証する」と書いているが、**この repo に `test` script は 1 つも無い**
-（`svelte/package.json` にも `worker/package.json` にも無く、ルートに
-`package.json` が無い）。`scenarios/semiconductor-chem-plant.test.ts` は
-`vitest` と `@etzhayyim/kami-engine-sdk/webvr` を import するが、
-`vitest` は依存に入っていない。テストが検査するはずの不変条件
-（全ノードが `start` から到達可能 / 全終端が outcome を持つ /
-`applySelection` のハッピーパスが success 終端に着く）は、**現在どこでも
-検査されていない**。
-
-### 4.3 ローカル開発サーバ —— この環境では確認できなかった
+### 4.2 ローカル開発サーバ —— この環境では確認できなかった
 
 `npx wrangler dev` は Worker のバインディング（`DRILL_KEYS` / `COOKIE_NAME` /
 `SESSION_TTL_HOURS`）を正しく読み込むところまで進んだが、この作業機で
-`EMFILE: too many open files, watch` に当たって起動を完了できなかった。
-**repo の欠陥ではなく作業機側の fd 枯渇**（多数の並行セッションが同居して
-いる）。`ulimit -n` に余裕のある機械では別の結果になりうるので、
-「通る」とも「通らない」とも書かない —— 未確認として残す。
-なお `../svelte/build` が無い状態では、いずれにせよ静的アセットは配れない。
+`EMFILE: too many open files, watch` に当たって起動を完了できなかった
+（2026-08-13 実測）。**repo の欠陥ではなく作業機側の fd 枯渇**（多数の並行
+セッションが同居している）。`ulimit -n` に余裕のある機械では別の結果に
+なりうるので、「通る」とも「通らない」とも書かない —— 未確認として残す。
 
 ---
 

@@ -9,11 +9,18 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
 
-  // Static SPA bundle from `../svelte/build`. SvelteKit adapter-static
-  // emits `index.html` as the SPA fallback; CF Static Assets routes
-  // unmatched paths to it when `not_found_handling` is set below.
+  // Static SPA bundle from `../cljs/public` (reagent + re-frame + jp-go-dds,
+  // built via `amu compile --target wasm32-browser app`; see ../cljs/README
+  // notes in cyber_drill/app.cljk). `../cljs/public/index.html` is the one
+  // document this single-page app ships (ADR-2608080100); CF Static Assets
+  // routes unmatched paths to it when `not_found_handling` is set below.
+  // 2026-09-24: migrated off the svelte/ SvelteKit adapter-static build
+  // (see docs/adr/0001-extraction-severed-the-webvr-sdk-link.md) — that
+  // build could never resolve its `@etzhayyim/kami-engine-sdk` dependency
+  // and this repo had never deployed successfully. Deploy from this config
+  // is UNVERIFIED as of this migration (not run; see the migration commit).
   "assets": {
-    "directory": "../svelte/build",
+    "directory": "../cljs/public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // The Worker runs FIRST and decides whether to call ASSETS.fetch.

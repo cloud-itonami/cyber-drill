@@ -1,6 +1,9 @@
 # cyber-drill worker — key-gated SPA host
 
-Vendor-private CF Worker that serves `../svelte/build` (the Svelte SPA)
+Vendor-private CF Worker that serves `../cljs/public` (the reagent +
+re-frame + jp-go-dds SPA, built via `amu compile --target wasm32-browser
+app`; migrated off the Svelte build 2026-09-24 — see
+`../docs/adr/0001-extraction-severed-the-webvr-sdk-link.md`)
 gated by a per-customer access key. Deployed to **workers.dev** (no
 custom domain) — final URL pattern:
 
@@ -20,17 +23,18 @@ The Worker runs first on every request. Three paths matter:
 2. `GET /__unlock` (or any path with no/invalid cookie) — serves a
    401 + a minimal HTML form to enter a key.
 3. Any other path with a valid cookie — forwarded to
-   `env.ASSETS.fetch(request)`, which serves the static Svelte bundle.
+   `env.ASSETS.fetch(request)`, which serves the static cljs bundle.
 
 ## One-time setup
 
 ```sh
-cd 60-apps/etzhayyim-project-cyber-drill/worker
+cd cyber-drill/worker
 
 # 1. Install Worker deps (wrangler etc.)
 pnpm install
 
-# 2. Build the SPA so `../svelte/build` exists.
+# 2. Build the SPA so `../cljs/public/js` exists (`npm install` inside
+#    ../cljs first if you haven't).
 pnpm run build:assets
 
 # 3. Authenticate with Cloudflare.
