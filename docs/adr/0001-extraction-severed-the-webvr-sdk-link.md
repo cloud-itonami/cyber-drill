@@ -88,5 +88,5 @@
   `scenarios/semiconductor-chem-plant.ts`（14 ノード / 終端 2）の対応付け。
   シナリオのデータ形（KPI は整数のみ、`terminal` は `'success'` / `'failure'`）は
   移植先でもそのまま持ち越せる。
-- 移植が終わるまで、`CLAUDE.md` の「`pnpm test` で到達性を検証する」は
+- 移植が終わるまで、`AGENTS.md` の「`pnpm test` で到達性を検証する」は
   **実行できない記述**である。`docs/operator-quickstart.md` §4.2 に明記した。
