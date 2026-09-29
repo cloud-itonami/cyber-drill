@@ -136,7 +136,7 @@ export interface SparkSampleHandle {
 // Common mount opts
 
 export interface SparkMountOpts {
-  /** Background clear color, 0xRRGGBB. Default 0xf0ead6 (Nintendo cream — root CLAUDE.md). */
+  /** Background clear color, 0xRRGGBB. Default 0xf0ead6 (Nintendo cream — root AGENTS.md). */
   background?: number;
   /** Camera initial distance (meters). Default 4. */
   cameraDistance?: number;

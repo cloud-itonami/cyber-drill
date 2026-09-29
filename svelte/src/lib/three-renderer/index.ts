@@ -6,7 +6,7 @@
  * under `src/lib/{spark,webvr}/`. It was removed from the SDK on
  * 2026-05-26 to enforce the religious-corp constitutional invariant
  * "独自レンダラ禁止 — kami-render wgpu PBR pipeline が唯一" (see
- * 40-engine/kami-engine/CLAUDE.md). cyber-drill is **vendor-private**
+ * 40-engine/kami-engine/AGENTS.md). cyber-drill is **vendor-private**
  * per ADR-2605172400 (liability + custody + settlement all vendor) and is
  * NOT bound by the religious-corp renderer invariant — the three.js
  * surface stays here, owned by the vendor app.

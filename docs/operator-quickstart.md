@@ -170,7 +170,7 @@ error during build:
 
 ### 4.2 シナリオのテスト —— ランナーが無い
 
-`CLAUDE.md` は「`pnpm test` で `webvr.test.ts` の不変条件に照らして到達性を
+`AGENTS.md` は「`pnpm test` で `webvr.test.ts` の不変条件に照らして到達性を
 検証する」と書いているが、**この repo に `test` script は 1 つも無い**
 （`svelte/package.json` にも `worker/package.json` にも無く、ルートに
 `package.json` が無い）。`scenarios/semiconductor-chem-plant.test.ts` は

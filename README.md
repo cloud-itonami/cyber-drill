@@ -56,7 +56,7 @@ vendor**:
 ```
 .
 ├── README.md                              ← この文書
-├── CLAUDE.md                              エージェント向けの実装規約（シナリオの書き方・float 規律）
+├── AGENTS.md                              エージェント向けの実装規約（シナリオの書き方・float 規律）
 ├── README.edn / migration.edn             抽出メタデータ（etzhayyim/root からの由来）
 ├── docs/
 │   ├── operator-quickstart.md             実際に踏める手順だけを書いた運用手順
@@ -75,7 +75,7 @@ vendor**:
 
 このリポジトリは `etzhayyim/root` の `60-apps/etzhayyim-project-cyber-drill`
 （rev `cc681c5`、35 ファイル / 277,925 バイト）を単体 repo として切り出したもの
-（`migration.edn` が正本）。**`CLAUDE.md` と `worker/README.md` は切り出し前の
+（`migration.edn` が正本）。**`AGENTS.md` と `worker/README.md` は切り出し前の
 モノレポを前提に書かれたまま**なので、`cd 60-apps/…` のようなパスや
 `pnpm test` のようなコマンドはこの repo には無い。手順は
 `docs/operator-quickstart.md` を正とする。
@@ -85,7 +85,7 @@ vendor**:
 浮動小数点を使わない。実数量はすべて単位を名前に持つ整数:
 `mttdSec` / `mttrSec` / `downtimeMin` / `dataLossGb` /
 `costYenDeci`（円 × 10）/ `regulatoryRiskPermille`（0–1000 に clamp）。
-シナリオを足すときの規約は `CLAUDE.md` を参照。
+シナリオを足すときの規約は `AGENTS.md` を参照。
 
 ## 参照する枠組み
 

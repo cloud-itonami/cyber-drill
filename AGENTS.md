@@ -24,7 +24,7 @@ OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs
 
 ```
 60-apps/etzhayyim-project-cyber-drill/
-├── CLAUDE.md                              # this file
+├── AGENTS.md                              # this file
 ├── scenarios/                             # vendor-private scenario data
 │   └── semiconductor-chem-plant.ts        # 半導体・電子材料プラント インシデント
 └── svelte/                                # Svelte SPA shell
@@ -40,7 +40,7 @@ OT cybersecurity training experiences delivered as smartphone WebVR walkthroughs
 
 ## Float discipline
 
-AT Lexicon disallows `number` (float). All real-valued quantities are integers with explicit units (`Sec`, `Min`, `Permille`, `Gb`, `YenDeci` = JPY × 10). See `90-docs/adr/2604231811-atproto-extension-service-layers.md` and root CLAUDE.md §LLM Coding Guardrails.
+AT Lexicon disallows `number` (float). All real-valued quantities are integers with explicit units (`Sec`, `Min`, `Permille`, `Gb`, `YenDeci` = JPY × 10). See `90-docs/adr/2604231811-atproto-extension-service-layers.md` and root AGENTS.md §LLM Coding Guardrails.
 
 ## Why WebVR
 
